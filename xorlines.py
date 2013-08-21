@@ -1,57 +1,65 @@
 import os, operator, itertools, sys, os.path
 from binascii import unhexlify, hexlify
 from unidiff.parser import parse_unidiff
+from Crypto.Cipher import AES
+#from tempfile import NamedTemporaryFile
 
 def encrypt(infile, outfile1, keyfile):
-    breakpositions = []
-
-    def findnewlines():
-        with open(infile, "rb") as f:
-          for x in zip(f.read(), itertools.count()):
-              if x[0] == ord(b'\n'):
-                  breakpositions.append(x[1])
-              else:
-                  yield x[0]
-
-    nobreaks = bytes(findnewlines())
-
-    key = os.urandom(len(nobreaks))
+    key = os.urandom(32)
     with open(keyfile, "wb") as f:
         f.write(key)
 
-    for i in reversed(range(len(breakpositions))):
-        if i != 0:
-            breakpositions[i] -= breakpositions[i-1] + 1
-
     with open(outfile1, "wb") as f:
-        encrypted_no_breaks = (operator.xor(*x) for x in zip(nobreaks, key))
-        for i in breakpositions:
-            f.write(hexlify(bytes(next(encrypted_no_breaks) for i in range(i))))
-            f.write(b'\n')
-        f.write(hexlify(bytes(encrypted_no_breaks)))
+        with open(infile, "rb") as i:
+            for line in i:
+                iv = os.urandom(16)
+                f.write(hexlify(iv) + b"," + hexlify(AES.new(key, AES.MODE_CFB, iv).encrypt(line)) + b'\n')
+
+def decrypt_text_to_stdout(keyfile):
+    for l in real_decrypt(keyfile, sys.stdin):
+        print(l.decode("utf-8"), end="")
+
+def real_decrypt(keyfile, stre):
+    with open(keyfile, "rb") as f:
+        key = f.read()
+    for j in stre:
+        i = tuple([unhexlify(x) for x in j.rstrip().split(",")])
+        yield AES.new(key, AES.MODE_CFB, i[0]).decrypt(i[1])
 
 def decrypt(outfile1, keyfile, decrypted):
-    def decode():
+    with open(decrypted, "wb") as f:
         with open(outfile1, "r") as encfile:
-            for i in encfile:
-                yield unhexlify(i.strip())
+            for i in real_decrypt(keyfile, encfile):
+                f.write(i)
 
-    with open(keyfile, "rb") as key:
-        with open(decrypted, "wb") as f:
-            for i in decode():
-                f.write(bytes(operator.xor(*x) for x in zip(i,key.read(len(i)))))
-                f.write(b'\n')
-
-def patch(diffdata, encdir, keydir):
+def real_patch(diffdata, encfile, key, tostdout):
     p = parse_unidiff(diffdata)
     for patchedfile in p:
+        # TODO read file name from PatchedFile and let this function process trees instead of files
         for hunk in patchedfile:
-            encfile = os.path.join(encdir, patchedfile.path)
-            keyfile = os.path.join(keydir, patchedfile.path)
-            with open(encfile, "r+") as encf:
-                with open(keyfile, "r+b") as keyf:
-                    # TODO http://programmers.stackexchange.com/questions/208436/zero-knowledge-code-hosting
-                    print(hunk)
+            with open(encfile, "r+b") as encf:
+                lines = encf.readlines()[:hunk.source_start-1]
+                """
+                for i in range(len(hunk.source_lines)):
+                    if hunk.source_types[i] in (' ', '-'):
+                        pass
+                    else:
+                        assert False
+                """
 
-def cmdlinepatch(encdir, keydir):
-    patch(sys.stdin, encdir, keydir)
+                for i in range(len(hunk.target_lines)):
+                    if hunk.target_types[i] in (' ','+'):
+                        iv = os.urandom(16)
+                        aes = AES.new(key, AES.MODE_CFB, iv)
+                        lines.append(hexlify(iv) + b"," + hexlify(aes.encrypt(hunk.target_lines[i])) + b"\n")
+                    else:
+                        assert False
+        if tostdout:
+            print(b''.join(lines).decode("utf-8").rstrip())
+        else:
+            with open(encfile, "wb") as f:
+                f.write(b''.join(lines).rstrip())
+
+def patch(encfile, keyfile, tostdout=False):
+    with open(keyfile,"rb") as f:
+        real_patch(sys.stdin, encfile, f.read(), tostdout)
