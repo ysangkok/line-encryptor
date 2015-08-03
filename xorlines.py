@@ -56,7 +56,6 @@ def real_patch(diffdata, encfile, key, tostdout):
                 """
 
                 for line in hunk.target_lines():
-                    pdb.set_trace()
                     if line.line_type in (' ','+'):
                         iv = os.urandom(16)
                         aes = AES.new(key, AES.MODE_CFB, iv)
