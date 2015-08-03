@@ -1,3 +1,5 @@
+Install `python3-crypto` (Ubuntu package name, see http://pycrypto.org for installation on other OS'es), clone `xorlines`, `git submodule update` and try this in its directory:
+
 ```
 $ mkdir input output
 $ shuf -n10 /usr/share/dict/words > input/myfile1
