@@ -1,7 +1,9 @@
 import os, operator, itertools, sys, os.path
 from binascii import unhexlify, hexlify
-from unidiff.parser import parse_unidiff
+from unidiff import PatchSet
 from Crypto.Cipher import AES
+import pdb
+import subprocess
 #from tempfile import NamedTemporaryFile
 
 def encrypt(infile, outfile1, keyfile):
@@ -33,7 +35,13 @@ def decrypt(outfile1, keyfile, decrypted):
                 f.write(i)
 
 def real_patch(diffdata, encfile, key, tostdout):
-    p = parse_unidiff(diffdata)
+    if isinstance(diffdata, str):
+        p = PatchSet.from_filename(diffdata)
+    else:
+        p = PatchSet(diffdata)
+
+    if len(p) == 0:
+      raise Exception("No patched files in this diff")
     for patchedfile in p:
         # TODO read file name from PatchedFile and let this function process trees instead of files
         for hunk in patchedfile:
@@ -47,11 +55,12 @@ def real_patch(diffdata, encfile, key, tostdout):
                         assert False
                 """
 
-                for i in range(len(hunk.target_lines)):
-                    if hunk.target_types[i] in (' ','+'):
+                for line in hunk.target_lines():
+                    pdb.set_trace()
+                    if line.line_type in (' ','+'):
                         iv = os.urandom(16)
                         aes = AES.new(key, AES.MODE_CFB, iv)
-                        lines.append(hexlify(iv) + b"," + hexlify(aes.encrypt(hunk.target_lines[i])) + b"\n")
+                        lines.append(hexlify(iv) + b"," + hexlify(aes.encrypt(line.value + "\n")) + b"\n")
                     else:
                         assert False
         if tostdout:
@@ -60,6 +69,10 @@ def real_patch(diffdata, encfile, key, tostdout):
             with open(encfile, "wb") as f:
                 f.write(b''.join(lines).rstrip())
 
-def patch(encfile, keyfile, tostdout=False):
-    with open(keyfile,"rb") as f:
-        real_patch(sys.stdin, encfile, f.read(), tostdout)
+def patch(encfile, keyfile, tostdout=False, input_source=sys.stdin):
+    with open(keyfile, "rb") as f:
+        real_patch(input_source, encfile, f.read(), tostdout)
+
+def diff_and_generate_patch(encfile, keyfile, file1, file2):
+    with subprocess.Popen(['diff', '-u', file1, file2], stdout=subprocess.PIPE) as p:
+        patch(encfile, keyfile, True, p.communicate()[0].decode("utf-8").split("\n"))
