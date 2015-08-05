@@ -13,7 +13,6 @@ ls output/myfile1 # this is the encrypted file just generated
 ) > input/newmyfile1
 diff -y input/{,new}myfile1 # show mock changes we just made
 (cd input; diff -u myfile1 newmyfile1 | PYTHONPATH=.. python3 -c "import xorlines; xorlines.patch('../output/myfile1', '../key')")
-(cd input; diff -y newmyfile1 ../output/myfile1)
 (cd output; git diff) #should show only some lines changed, not the first two
 ```
 
@@ -25,3 +24,8 @@ Test
             PYTHONPATH=.. python3 -c "import xorlines; xorlines.decrypt_text_to_stdout('../key')" | \
             diff - newmyfile1
     input $ # should output nothing, that is, the decrypted patched ciphertext file is identical to the new plaintext
+
+If it fails, use this for debugging
+---
+
+    input $ PYTHONPATH=.. python3 -c "import xorlines; xorlines.patch('../output/myfile1', '../key', True, '"<(diff -u myfile1 newmyfile1)"')"
